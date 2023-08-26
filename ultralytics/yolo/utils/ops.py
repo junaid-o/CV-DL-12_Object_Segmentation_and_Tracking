@@ -648,7 +648,7 @@ def masks2segments(masks, strategy='largest'):
                 c = np.array(c[np.array([len(x) for x in c]).argmax()]).reshape(-1, 2)
         else:
             c = np.zeros((0, 2))  # no segments found
-        segments.append(c.astype('float32'))
+        segments.append(c.astype('np.float32'))
     return segments
 
 
