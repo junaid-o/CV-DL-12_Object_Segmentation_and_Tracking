@@ -2,7 +2,7 @@
 
 [![Python 3.10.12](https://img.shields.io/badge/python-3.10.12-blue.svg)](https://www.python.org/downloads/release/python-31012/)
 ![Static Badge](https://img.shields.io/badge/YOLO-8-orange.svg)
-![Static Badge](https://img.shields.io/badge/DeepSORT-green.svg)
+![Static Badge](https://img.shields.io/badge/DeepSORT-purple.svg)
 
 
 ## Table of Contents
