@@ -1,8 +1,10 @@
 import os
 import subprocess
+import argparse
+
 
 # Construct the path to predict.py
-#detection_DeepSORT_prediction_path = os.path.join('ultralytics', 'yolo', 'v8', 'detect', 'predict.py')
+detection_DeepSORT_prediction_path = os.path.join('ultralytics', 'yolo', 'v8', 'detect', 'predict.py')
 segment_DeepSORT_prediction_path =os.path.abspath(os.path.join('ultralytics', 'yolo', 'v8', 'segment', 'predict.py'))
 
 # Construct the path to yolov8s.pt model
