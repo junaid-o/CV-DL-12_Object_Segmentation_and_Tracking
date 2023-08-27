@@ -1,5 +1,16 @@
 # Ultralytics YOLO 🚀, GPL-3.0 license
 
+
+#############################################################################
+#               CUSTOMISED PREDICT.py FILE                  `               #
+#               WITH                                                        #
+#               DETECTION,TRACKING ID, TRACKING TRAIL,                      #
+#               AND COUNT OF OBJECTS  CROSSING CERTAIN BOUDARY              #
+#
+###############################################################################
+
+
+
 import hydra
 import torch
 
@@ -7,15 +18,17 @@ from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import colors, save_one_box
 
+
+################ DeepSORT IMPLEMENTATION START ###############################
 from ultralytics.yolo.v8.detect.predict import DetectionPredictor
 from numpy import random
-
-
 import cv2
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
+
 #Deque is basically a double ended queue in python, we prefer deque over list when we need to perform insertion or pop up operations
 #at the same time
+
 from collections import deque
 import numpy as np
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
@@ -23,6 +36,12 @@ data_deque = {}
 
 deepsort = None
 
+object_counter = {}
+
+object_counter1 = {}
+
+
+line = [(100, 500), (1050, 500)]
 def init_tracker():
     global deepsort
     cfg_deep = get_config()
@@ -74,7 +93,35 @@ def compute_color_for_labels(label):
         color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
     return tuple(color)
 
+def draw_border(img, pt1, pt2, color, thickness, r, d):
+    x1,y1 = pt1
+    x2,y2 = pt2
+    # Top left
+    cv2.line(img, (x1 + r, y1), (x1 + r + d, y1), color, thickness)
+    cv2.line(img, (x1, y1 + r), (x1, y1 + r + d), color, thickness)
+    cv2.ellipse(img, (x1 + r, y1 + r), (r, r), 180, 0, 90, color, thickness)
+    # Top right
+    cv2.line(img, (x2 - r, y1), (x2 - r - d, y1), color, thickness)
+    cv2.line(img, (x2, y1 + r), (x2, y1 + r + d), color, thickness)
+    cv2.ellipse(img, (x2 - r, y1 + r), (r, r), 270, 0, 90, color, thickness)
+    # Bottom left
+    cv2.line(img, (x1 + r, y2), (x1 + r + d, y2), color, thickness)
+    cv2.line(img, (x1, y2 - r), (x1, y2 - r - d), color, thickness)
+    cv2.ellipse(img, (x1 + r, y2 - r), (r, r), 90, 0, 90, color, thickness)
+    # Bottom right
+    cv2.line(img, (x2 - r, y2), (x2 - r - d, y2), color, thickness)
+    cv2.line(img, (x2, y2 - r), (x2, y2 - r - d), color, thickness)
+    cv2.ellipse(img, (x2 - r, y2 - r), (r, r), 0, 0, 90, color, thickness)
 
+    cv2.rectangle(img, (x1 + r, y1), (x2 - r, y2), color, -1, cv2.LINE_AA)
+    cv2.rectangle(img, (x1, y1 + r), (x2, y2 - r - d), color, -1, cv2.LINE_AA)
+    
+    cv2.circle(img, (x1 +r, y1+r), 2, color, 12)
+    cv2.circle(img, (x2 -r, y1+r), 2, color, 12)
+    cv2.circle(img, (x1 +r, y2-r), 2, color, 12)
+    cv2.circle(img, (x2 -r, y2-r), 2, color, 12)
+    
+    return img
 
 def UI_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
@@ -86,14 +133,40 @@ def UI_box(x, img, color=None, label=None, line_thickness=None):
         tf = max(tl - 1, 1)  # font thickness
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
 
-        img =  cv2.rectangle(img, (c1[0], c1[1] - t_size[1] -3), (c1[0] + t_size[0], c1[1]+3), color,-1,  cv2.LINE_AA)
+        img = draw_border(img, (c1[0], c1[1] - t_size[1] -3), (c1[0] + t_size[0], c1[1]+3), color, 1, 8, 2)
 
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 
+def intersect(A,B,C,D):
+    return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
 
+def ccw(A,B,C):
+    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
+
+
+def get_direction(point1, point2):
+    direction_str = ""
+
+    # calculate y axis direction
+    if point1[1] > point2[1]:
+        direction_str += "South"
+    elif point1[1] < point2[1]:
+        direction_str += "North"
+    else:
+        direction_str += ""
+
+    # calculate x axis direction
+    if point1[0] > point2[0]:
+        direction_str += "East"
+    elif point1[0] < point2[0]:
+        direction_str += "West"
+    else:
+        direction_str += ""
+
+    return direction_str
 def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
-    #cv2.line(img, line[0], line[1], (46,162,112), 3)
+    cv2.line(img, line[0], line[1], (46,162,112), 3)
 
     height, width, _ = img.shape
     # remove tracked point from buffer if object is lost
@@ -123,6 +196,20 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
 
         # add center to buffer
         data_deque[id].appendleft(center)
+        if len(data_deque[id]) >= 2:
+          direction = get_direction(data_deque[id][0], data_deque[id][1])
+          if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
+              cv2.line(img, line[0], line[1], (255, 255, 255), 3)
+              if "South" in direction:
+                if obj_name not in object_counter:
+                    object_counter[obj_name] = 1
+                else:
+                    object_counter[obj_name] += 1
+              if "North" in direction:
+                if obj_name not in object_counter1:
+                    object_counter1[obj_name] = 1
+                else:
+                    object_counter1[obj_name] += 1
         UI_box(box, img, label=label, color=color, line_thickness=2)
         # draw trail
         for i in range(1, len(data_deque[id])):
@@ -133,8 +220,29 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
             thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
             # draw trails
             cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
+    
+    #4. Display Count in top right corner
+        for idx, (key, value) in enumerate(object_counter1.items()):
+            cnt_str = str(key) + ":" +str(value)
+            cv2.line(img, (width - 500,25), (width,25), [85,45,255], 40)
+            cv2.putText(img, f'Number of Vehicles Entering', (width - 500, 35), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
+            cv2.line(img, (width - 150, 65 + (idx*40)), (width, 65 + (idx*40)), [85, 45, 255], 30)
+            cv2.putText(img, cnt_str, (width - 150, 75 + (idx*40)), 0, 1, [255, 255, 255], thickness = 2, lineType = cv2.LINE_AA)
+
+        for idx, (key, value) in enumerate(object_counter.items()):
+            cnt_str1 = str(key) + ":" +str(value)
+            cv2.line(img, (20,25), (500,25), [85,45,255], 40)
+            cv2.putText(img, f'Numbers of Vehicles Leaving', (11, 35), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)    
+            cv2.line(img, (20,65+ (idx*40)), (127,65+ (idx*40)), [85,45,255], 30)
+            cv2.putText(img, cnt_str1, (11, 75+ (idx*40)), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
+    
+    
+    
     return img
 
+
+################ DeepSORT IMPLEMENTATION DONE #########################################
+################ init_tracker() WILL BE ADDED IN PRICT FUNCTION AT THE END #############
 
 class SegmentationPredictor(DetectionPredictor):
 
@@ -161,6 +269,7 @@ class SegmentationPredictor(DetectionPredictor):
 
         return (p, masks)
 
+
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
         log_string = ""
@@ -182,6 +291,7 @@ class SegmentationPredictor(DetectionPredictor):
         det = preds[idx]
         if len(det) == 0:
             return log_string
+       
         # Segments
         mask = masks[idx]
         if self.args.save_txt:
@@ -207,6 +317,7 @@ class SegmentationPredictor(DetectionPredictor):
         confs = []
         oids = []
         outputs = []
+        
         # Write results
         for j, (*xyxy, conf, cls) in enumerate(reversed(det[:, :6])):
             x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
